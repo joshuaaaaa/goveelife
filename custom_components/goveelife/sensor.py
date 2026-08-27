@@ -8,6 +8,7 @@ from typing import Final
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
+    SensorEntity,
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
@@ -112,7 +113,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     async_add_entities(entities)
 
 
-class GoveeLifeSensor(GoveeLifePlatformEntity):
+class GoveeLifeSensor(GoveeLifePlatformEntity, SensorEntity):
     """Sensor class for Govee Life integration."""
 
     def _init_platform_specific(self, **kwargs):
@@ -154,18 +155,13 @@ class GoveeLifeSensor(GoveeLifePlatformEntity):
         _LOGGER.debug("%s - %s: state_class: property requested", self._api_id, self._identifier)
         return self._state_class
 
-    @property
-    def capability_attributes(self):
-        if self.state_class is not None:
-            return {"state_class": self.state_class}
-
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         self.async_write_ha_state()
 
     @property
-    def state(self) -> str | None:
+    def native_value(self) -> str | None:
         """Return the current state of the entity."""
         value = GoveeAPI_GetCachedStateValue(
             self.hass,
