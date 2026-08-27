@@ -332,12 +332,26 @@ class GoveeLifeHumidifier(HumidifierEntity, GoveeLifePlatformEntity):
                 type(e).__name__,
             )
 
-    async def async_set_mode(self, preset_mode: str) -> None:
+    async def async_set_mode(self, **kwargs) -> None:
         """Set new target preset mode."""
+        preset_mode = kwargs.get("mode") or kwargs.get("preset_mode")
+        if preset_mode is None:
+            _LOGGER.warning("%s - %s: async_set_mode called with no mode kwarg: %s", self._api_id, self._identifier, kwargs)
+            return
         state_capability = {
             "type": "devices.capabilities.work_mode",
             "instance": "workMode",
             "value": self._attr_preset_modes_mapping_set[preset_mode],
+        }
+        if await async_GoveeAPI_ControlDevice(self.hass, self._entry_id, self._device_cfg, state_capability):
+            self.async_write_ha_state()
+
+    async def async_set_humidity(self, humidity: int) -> None:
+        """Set new target humidity."""
+        state_capability = {
+            "type": "devices.capabilities.range",
+            "instance": "humidity",
+            "value": humidity,
         }
         if await async_GoveeAPI_ControlDevice(self.hass, self._entry_id, self._device_cfg, state_capability):
             self.async_write_ha_state()
