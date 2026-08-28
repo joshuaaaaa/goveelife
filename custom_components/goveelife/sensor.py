@@ -13,10 +13,10 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
-    CONCENTRATION_PARTS_PER_MILLION,
     CONF_DEVICES,
     PERCENTAGE,
     STATE_UNKNOWN,
+    UnitOfRatio,
     UnitOfTemperature,
 )
 from homeassistant.core import (
@@ -140,7 +140,7 @@ class GoveeLifeSensor(GoveeLifePlatformEntity, SensorEntity):
             self._attr_native_unit_of_measurement = UnitOfTemperature.FAHRENHEIT
         elif self._capability_name == "carbonDioxideConcentration":
             self._attr_device_class = SensorDeviceClass.CO2
-            self._attr_native_unit_of_measurement = CONCENTRATION_PARTS_PER_MILLION
+            self._attr_native_unit_of_measurement = UnitOfRatio.PARTS_PER_MILLION
         elif self._capability_name == "airQuality":
             self._attr_device_class = SensorDeviceClass.AQI
             self._attr_native_unit_of_measurement = None
@@ -154,6 +154,11 @@ class GoveeLifeSensor(GoveeLifePlatformEntity, SensorEntity):
         """Return the state_class of the entity."""
         _LOGGER.debug("%s - %s: state_class: property requested", self._api_id, self._identifier)
         return self._state_class
+
+    @property
+    def state(self) -> str | None:
+        """Return state via native_value (overrides GoveeLifePlatformEntity.state to let SensorEntity work correctly)."""
+        return self.native_value
 
     @callback
     def _handle_coordinator_update(self) -> None:
