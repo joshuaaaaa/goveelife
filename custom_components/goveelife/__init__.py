@@ -12,6 +12,7 @@ from homeassistant.const import (
     CONF_SCAN_INTERVAL,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 
 from .const import (
     CONF_COORDINATORS,
@@ -70,6 +71,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             type(e).__name__,
         )
         return False
+
+    try:
+        _LOGGER.debug("%s - async_setup_entry: Reconciling stale devices in registry", entry.entry_id)
+        api_device_ids = {d.get("device") for d in api_devices if d.get("device")}
+        registry = dr.async_get(hass)
+        for device_entry in dr.async_entries_for_config_entry(registry, entry.entry_id):
+            for identifier in device_entry.identifiers:
+                if identifier[0] == DOMAIN and identifier[1] not in api_device_ids:
+                    _LOGGER.info(
+                        "%s - async_setup_entry: Removing stale device from registry: %s",
+                        entry.entry_id,
+                        identifier[1],
+                    )
+                    registry.async_remove_device(device_entry.id)
+                    break
+    except Exception as e:
+        _LOGGER.warning(
+            "%s - async_setup_entry: Stale device reconciliation failed: %s (%s.%s)",
+            entry.entry_id,
+            str(e),
+            e.__class__.__module__,
+            type(e).__name__,
+        )
 
     try:
         _LOGGER.debug("%s - async_setup_entry: Creating update coordinators per device..", entry.entry_id)
@@ -163,6 +187,45 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error(
             "%s - async_unload_entry: Unload device failed: %s (%s.%s)",
             entry.entry_id,
+            str(e),
+            e.__class__.__module__,
+            type(e).__name__,
+        )
+        return False
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, config_entry: ConfigEntry, device_entry: dr.DeviceEntry
+) -> bool:
+    """Allow removing a device from the UI if it is no longer returned by the Govee API.
+
+    Returning True enables the Delete button on the device page.  We only
+    permit deletion when the device is no longer present in the current API
+    device list, preventing accidental removal of live devices.
+    """
+    try:
+        entry_data = hass.data.get(DOMAIN, {}).get(config_entry.entry_id, {})
+        api_devices = entry_data.get(CONF_DEVICES, [])
+        api_device_ids = {d.get("device") for d in api_devices if d.get("device")}
+
+        for identifier in device_entry.identifiers:
+            if identifier[0] == DOMAIN:
+                device_id = identifier[1]
+                can_remove = device_id not in api_device_ids
+                _LOGGER.debug(
+                    "%s - async_remove_config_entry_device: device=%s can_remove=%s",
+                    config_entry.entry_id,
+                    device_id,
+                    can_remove,
+                )
+                return can_remove
+
+        # No goveelife identifier found — allow removal
+        return True
+    except Exception as e:
+        _LOGGER.error(
+            "%s - async_remove_config_entry_device: Failed: %s (%s.%s)",
+            config_entry.entry_id,
             str(e),
             e.__class__.__module__,
             type(e).__name__,
