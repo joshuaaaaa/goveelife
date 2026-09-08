@@ -59,7 +59,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         _LOGGER.debug("%s - async_setup_entry: Receiving cloud devices..", entry.entry_id)
         api_devices = await async_GoveeAPI_GETRequest(hass, entry.entry_id, "user/devices")
-        if api_devices is None:
+        if not api_devices:
             return False
         entry_data[CONF_DEVICES] = api_devices
     except Exception as e:
