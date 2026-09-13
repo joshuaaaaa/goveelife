@@ -64,7 +64,6 @@ class GoveeLifePlatformEntity(CoordinatorEntity, Entity):
 
             self._attributes = {}
             # self._attributes['description'] = self._entity_cfg.get('description', None)
-            self._state = STATE_UNKNOWN
 
             super().__init__(coordinator)
 
@@ -120,10 +119,14 @@ class GoveeLifePlatformEntity(CoordinatorEntity, Entity):
     #        """Return the entity_category of the entity."""
     #        return None
 
-    @property
-    def state(self) -> str | None:
-        """Return the current state of the entity."""
-        return self._state
+    # NOTE: deliberately no `state` property on this base class.
+    # Platform classes mix this class with a Home Assistant entity class
+    # (SensorEntity, BinarySensorEntity, ...) whose own `state` implementation
+    # derives the state from `native_value` / `is_on` and applies unit
+    # conversion. A `state` property here can win the MRO and silently disable
+    # that logic - which is what broke all sensor values in v4.1.5 and
+    # temperature unit conversion in v4.1.6.
+    # Platforms needing a custom state must define it on their own class.
 
     @property
     def extra_state_attributes(self):

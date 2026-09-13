@@ -16,7 +16,6 @@ from homeassistant.const import (
     CONF_DEVICES,
     PERCENTAGE,
     STATE_UNKNOWN,
-    UnitOfRatio,
     UnitOfTemperature,
 )
 from homeassistant.core import (
@@ -24,6 +23,16 @@ from homeassistant.core import (
     callback,
 )
 from homeassistant.helpers.entity import EntityCategory
+
+try:
+    # UnitOfRatio was added in HA 2026.7; CONCENTRATION_PARTS_PER_MILLION is
+    # deprecated and removed in HA 2027.8. Support both so the integration keeps
+    # loading on the HA versions declared in hacs.json.
+    from homeassistant.const import UnitOfRatio
+
+    PARTS_PER_MILLION = UnitOfRatio.PARTS_PER_MILLION
+except ImportError:  # HA < 2026.7
+    from homeassistant.const import CONCENTRATION_PARTS_PER_MILLION as PARTS_PER_MILLION
 
 from .const import (
     CONF_COORDINATORS,
@@ -46,6 +55,35 @@ platform_device_types = [
     # Air purifier read-only properties (airQuality, filterLifeTime on H7123, etc.)
     "devices.types.air_purifier:devices.capabilities.property:.*",
 ]
+
+
+def _numeric_value(value) -> float | int | None:
+    """Return value as a number, or None if it does not carry a numeric reading.
+
+    The Govee API reports a missing reading as None or an empty string, sends some
+    values as strings, and wraps a few readings in a dict (e.g. sensorHumidity as
+    {"currentHumidity": 55}).
+    """
+    if isinstance(value, dict):
+        for key in ("currentHumidity", "currentTemperature", "value"):
+            if key in value:
+                return _numeric_value(value[key])
+        return None
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        value = value.strip()
+        try:
+            return int(value)
+        except ValueError:
+            pass
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
@@ -113,7 +151,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     async_add_entities(entities)
 
 
-class GoveeLifeSensor(GoveeLifePlatformEntity, SensorEntity):
+class GoveeLifeSensor(SensorEntity, GoveeLifePlatformEntity):
     """Sensor class for Govee Life integration."""
 
     def _init_platform_specific(self, **kwargs):
@@ -140,7 +178,7 @@ class GoveeLifeSensor(GoveeLifePlatformEntity, SensorEntity):
             self._attr_native_unit_of_measurement = UnitOfTemperature.FAHRENHEIT
         elif self._capability_name == "carbonDioxideConcentration":
             self._attr_device_class = SensorDeviceClass.CO2
-            self._attr_native_unit_of_measurement = UnitOfRatio.PARTS_PER_MILLION
+            self._attr_native_unit_of_measurement = PARTS_PER_MILLION
         elif self._capability_name == "airQuality":
             self._attr_device_class = SensorDeviceClass.AQI
             self._attr_native_unit_of_measurement = None
@@ -155,19 +193,14 @@ class GoveeLifeSensor(GoveeLifePlatformEntity, SensorEntity):
         _LOGGER.debug("%s - %s: state_class: property requested", self._api_id, self._identifier)
         return self._state_class
 
-    @property
-    def state(self) -> str | None:
-        """Return state via native_value (overrides GoveeLifePlatformEntity.state to let SensorEntity work correctly)."""
-        return self.native_value
-
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         self.async_write_ha_state()
 
     @property
-    def native_value(self) -> str | None:
-        """Return the current state of the entity."""
+    def native_value(self) -> float | int | None:
+        """Return the current value of the entity in its native unit."""
         value = GoveeAPI_GetCachedStateValue(
             self.hass,
             self._entry_id,
@@ -176,4 +209,16 @@ class GoveeLifeSensor(GoveeLifePlatformEntity, SensorEntity):
             self._capability_name,
         )
         _LOGGER.debug("%s - %s: state value: %s", self._api_id, self._identifier, value)
-        return value
+        # All capabilities handled by this platform are numeric. SensorEntity.state
+        # raises a ValueError on non-numeric values (and cannot convert units on a
+        # string), so normalize here and report an unknown state instead.
+        numeric_value = _numeric_value(value)
+        if numeric_value is None and value is not None and value != "":
+            _LOGGER.warning(
+                "%s - %s: ignoring non-numeric value for %s: %s",
+                self._api_id,
+                self._identifier,
+                self._capability_name,
+                value,
+            )
+        return numeric_value
